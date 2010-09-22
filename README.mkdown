@@ -1,0 +1,9 @@
+2010-09-21
+
+Author: Nicholas Dunn
+
+A [photomosaic generator][1] written in Scala.
+
+
+
+[1]:http://en.wikipedia.org/wiki/Photographic_mosaic
