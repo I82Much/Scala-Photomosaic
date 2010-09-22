@@ -143,7 +143,7 @@ object PhotoMosaic {
     null
   }
   
-  
+  // TODO: use a class to represent the index
   def photoMosaicize(targetFile:File, index:Seq[Tuple2[File,Color]]): BufferedImage = {
     
     val buffImage = ImageIO.read(targetFile)
@@ -341,8 +341,13 @@ object PhotoMosaic {
 }
 
 
+/**
+* Enhances Color objects with the ability to determine a distance measure
+* from another color.  
+*/
 class RichColor(original:Color) {
   implicit def color2RichColor(original: Color) = new RichColor(original)
+  
   
   // Avoid taking a square root unnecessarily
   def euclideanDistanceSquared(other:Color):Double = {
@@ -355,9 +360,11 @@ class RichColor(original:Color) {
     val squared = euclideanDistanceSquared(other)
     Math.sqrt(squared)
   }
-  
+ 
+  /** Currently define the distance function as the squared euclidean distance, but this can be changed*/
   val distance : (Color) => Double = euclideanDistanceSquared
-  
+ 
+  /** @return a Tuple3 where order is red, green, blue and numbers are in range 0..255 */
   def unpack(): Tuple3[Int,Int,Int] = {
     (original.getRed(), original.getGreen(), original.getBlue())
   }
