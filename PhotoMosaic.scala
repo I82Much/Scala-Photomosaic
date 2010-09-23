@@ -31,6 +31,17 @@ import java.awt.Rectangle
 
 package net.developmentality.photo {
 
+
+// type PhotoMetadata = Tuple3[File,Color,BufferedImage]
+
+// class PhotoMetadata(originalFile:File, imageColor:Color, shrunkenSwatch:BufferedImage) {}
+
+// class PhotoIndex(Map[File, PhotoMetadata]) {
+//   def toCsv():String
+// }
+
+
+
 /**
  * The photo index is a plain text, CSV file consisting of 
  * the original photo location, the average color of the image, and the path
@@ -40,37 +51,37 @@ package net.developmentality.photo {
 */
 object PhotoIndexer {
   
+  type PhotoMetadata = Tuple3[File,Color,BufferedImage]
+  type PhotoIndex = Map[File, PhotoMetadata]
   
-  class PhotoMetadata(originalFile:File, color:Color, shrunkenSwatch:BufferedImage) {
-    
-  }
   
   def loadIndex(indexLoc:File):PhotoIndex = {
-    
+    null
   }
   
-  
+
+  /**
+  * Creates an 
+  */
   def createIndex(images:Seq[File], outputLoc:File, 
     thumbnailOutput:File,
     width:Int, height:Int):PhotoIndex = {
 
       
-      // Create the BufferedImage, calculate average color, 
-      
+      // Create the BufferedImage, calculate average color
       images.map(x => 
         {
           val buffImg:BufferedImage = ImageIO.read(x)
-          val avgColor:Color = 
+          val avgColor:Color = PhotoMosaic.calculateColor(buffImg)
           val shrunken:BufferedImage = shrinkSwatch(buffImg, width, height)
         
         }
-        )
-
-    
+      )
+      null
   }
   
-  def createRow(file:File):ImageMetadata = {
-    
+  def createRow(file:File):PhotoMetadata = {
+    null
   }
   
   
@@ -86,8 +97,9 @@ object PhotoIndexer {
     ImageIO.write(shrunken, "png", new File(file.getPath().slice(0,dotIndex) + "_small.png") )
   }
   
-  // Shrink an image to given dimensions.  Aspect ratio is not preserved.
-  // http://helpdesk.objects.com.au/java/how-do-i-scale-a-bufferedimage
+  /** Shrinks an image to given dimensions.  Aspect ratio is not preserved.
+   @see {http://helpdesk.objects.com.au/java/how-do-i-scale-a-bufferedimage}
+  */
   def shrinkSwatch(original:BufferedImage, width:Int, height:Int) = {
     val scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
     val graphics2D = scaledImage.createGraphics()
@@ -97,7 +109,6 @@ object PhotoIndexer {
       
     graphics2D.drawImage(original, 0, 0, width, height, null)
     graphics2D.dispose()
-    
     scaledImage
   }
   
@@ -171,20 +182,21 @@ object PhotoMosaic {
         val x = i * patchWidth
         val y = j * patchHeight
         val subImage = buffImage.getData(new Rectangle(x,y,patchWidth,patchHeight))
-        val color = calculateColorFromRaster(subImage)
+        val avgImageColor = calculateColorFromRaster(subImage)
         
         // This way merely draws the block of average color
-        // graphics2D.setColor(color)
+        // graphics2D.setColor(avgImageColor)
         // graphics2D.fillRect(2*x,2*y,20,20)
         
 
         var x2 = i * targetSquareSize
         var y2 = j * targetSquareSize
-        val nearest = getNearestColorImage(color, imageMap)
+        val nearest = getNearestColorImage(avgImageColor, imageMap)
         
         graphics2D.drawImage(nearest, x2, y2, targetSquareSize, targetSquareSize, null)
 
         val percent = 100.0 * counter / numSubImages
+        // TODO: for GUI version, use a display bar
         if (counter % 100 == 0) {
           println(percent + " completed (" + counter + " of" + numSubImages + ")")
         }
@@ -222,11 +234,15 @@ object PhotoMosaic {
     closestElem._1
   }
   
+  /**
+  * Calculates the 
+  */
   def getNearestColorImages(targetColor: Color, colorMap:Map[BufferedImage, Color]): Seq[BufferedImage] = {
     val keys:List[BufferedImage] = colorMap.keys.toList
     keys.sort((c1,c2) =>
       colorMap(c1).distance(targetColor) < colorMap(c2).distance(targetColor)
     )
+    keys
   }
  
   
@@ -237,9 +253,6 @@ object PhotoMosaic {
       c1.distance(targetColor) < c2.distance(targetColor)
     )
   }
-    
-  
-  
   
   // Creates a solid swatch of color matching average of 
   def createSwatch(color:Color): BufferedImage = {
@@ -273,7 +286,6 @@ object PhotoMosaic {
     (new File(fileLoc), new Color(red, green,blue))
   }
   
-  // http://www.google.com/imgres?imgurl=http://www.carleton.ca/residence-life/greenhouse/images/blue_sky_1920.jpg&imgrefurl=http://www.carleton.ca/residence-life/greenhouse/&usg=__FmlpS2jiJ1PTsodvXC3GimEATqo=&h=1440&w=1920&sz=347&hl=en&start=1&sig2=L2Qhv3sto-oJDbV8j4nHCQ&um=1&itbs=1&tbnid=QXv19dve7ASCVM:&tbnh=113&tbnw=150&prev=/images%3Fq%3Dsky%26um%3D1%26hl%3Den%26client%3Dfirefox-a%26sa%3DN%26rls%3Dorg.mozilla:en-US:official%26tbs%3Disch:1&ei=A3AtTMLcBI2KnAeKpviABQ
   def createIndex(files: Seq[File]): Seq[Tuple2[File, Color]] = {
     // Calculate the average color of each image
     val indices = files.map( 
@@ -318,21 +330,21 @@ object PhotoMosaic {
     new Color(redSum / numPixels, greenSum / numPixels, blueSum / numPixels)
   }
   
-  def calculateColorFromRaster(raster: Raster): Color = {
-    val minX = raster.getMinX()
-    val minY = raster.getMinY()
-  
-    val height = raster.getHeight()
-    val width = raster.getWidth()
-    val numPixels = height * width
-  
-    val numChannels = raster.getNumBands() 
-  
-    val pixelBuffer = new Array[Int](width*height*numChannels)
-    val pixels = raster.getPixels(minX,minY,width,height,pixelBuffer)
-    
-    
-  }
+  // def calculateColorFromRaster(raster: Raster): Color = {
+  //     val minX = raster.getMinX()
+  //     val minY = raster.getMinY()
+  //   
+  //     val height = raster.getHeight()
+  //     val width = raster.getWidth()
+  //     val numPixels = height * width
+  //   
+  //     val numChannels = raster.getNumBands() 
+  //   
+  //     val pixelBuffer = new Array[Int](width*height*numChannels)
+  //     val pixels = raster.getPixels(minX,minY,width,height,pixelBuffer)
+  //     
+  //     
+  //   }
 
   def calculateColor(f:BufferedImage): Color = {
     calculateColorFromRaster(f.getRaster())
