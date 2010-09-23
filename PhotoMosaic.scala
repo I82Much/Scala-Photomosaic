@@ -43,6 +43,8 @@ package net.developmentality.photo {
 
 case class Metadata(originalImage:File, avgColor:Color, thumbnail:BufferedImage){}
 
+
+
 /**
  * The photo index is a plain text, CSV file consisting of 
  * the original photo location, the average color of the image, and the path
@@ -51,7 +53,7 @@ case class Metadata(originalImage:File, avgColor:Color, thumbnail:BufferedImage)
  * In the index creation process, the images are
 */
 object PhotoIndexer {
-  val FIELD_DELIMITER = "|";
+  val FIELD_DELIMITER = "\\|";
   val FILE_NAME_INDEX = 0
   val AVG_COLOR_INDEX = 1
   val SHRUNKEN_IMAGE_INDEX = 2
@@ -72,7 +74,11 @@ object PhotoIndexer {
   }
   
   def parseLine(indexRow:String):Metadata = {
+    Console.println("Row: " + indexRow)
+    
     val entries = indexRow.split(FIELD_DELIMITER)
+    
+    Console.println("Entries: " + entries.mkString(","))
     
     val theFile:File = new File(entries(FILE_NAME_INDEX))
     val color:Color = Color.decode(entries(AVG_COLOR_INDEX))
@@ -88,8 +94,6 @@ object PhotoIndexer {
   * ImageIO knows how to read (e.g. png, jpg)
   */
   def createIndex(images:Seq[File], 
-    indexOutputLoc:File, 
-    thumbnailOutputDir:File,
     thumbnailWidth:Int, thumbnailHeight:Int):PhotoIndex = {
       
       val metadata = images.map(x => 
@@ -102,6 +106,44 @@ object PhotoIndexer {
       )
       images.zip(metadata).toMap:PhotoIndex
   }
+  
+  def saveIndex(index:PhotoIndex, outputFile:File, thumbnailDir:File):Unit = {
+    
+    if (!thumbnailDir.exists()) {
+      thumbnailDir.mkdirs()
+    }
+    else if (thumbnailDir.isFile()) {
+      throw new IllegalArgumentException("Thumbnail directory " + thumbnailDir + " is a file, not a folder")
+    }
+    
+    
+    // Strip out the directory name and then the trailing file extension, tacking on
+    // a _thumbnail.png suffix
+    val fileNames = index.keys.map(_.getName())
+    val thumbnailFiles = fileNames.map(imgFile => 
+      new File(thumbnailDir, imgFile.substring(0, imgFile.lastIndexOf(".")) + "_thumbnail.png")
+    )
+    
+    val fileWriter = new java.io.FileWriter(outputFile)
+    
+    index.values.zip(thumbnailFiles).foreach( tuple => {
+      val metadata:Metadata = tuple._1
+      val thumbnailFile = tuple._2
+      val thumbnailFilepath = thumbnailFile.getPath()
+      
+      ImageIO.write(metadata.thumbnail, "png", thumbnailFile)
+      
+      val filePath = metadata.originalImage.getPath()
+      val colorStr = String.valueOf(metadata.avgColor.getRGB)
+      val entries = List(filePath, colorStr, thumbnailFilepath)
+      fileWriter.write(entries.mkString(FIELD_DELIMITER))
+      fileWriter.write("\n")
+      }
+    )
+    fileWriter.close
+  }
+  
+
       
   def shrinkImage(file:File): Unit = {
     println("Shrinking image " + file)
@@ -158,8 +200,6 @@ object PhotoMosaic {
       Console.println("PhotoMosaic file1 ... fileN")
       System.exit(1)
     }
-    
-    
     val files = args.map(new File(_))
     
     val indexLoc = files.findIndexOf(_.getName().equals("index.txt"))
@@ -171,11 +211,15 @@ object PhotoMosaic {
       }
       else {
         PhotoIndexer.createIndex(files, 
-          new File("index.txt"), 
-          new File("Thumbnails"), 
           THUMBNAIL_WIDTH, 
           THUMBNAIL_HEIGHT)
       }
+    
+    
+    if (indexLoc < 0) {
+      PhotoIndexer.saveIndex(index, new File("index.txt"), new File("Thumbnails"))
+    }
+    
     
     val target = files(0)
     val mosaic:BufferedImage = photoMosaicize(target, index, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
