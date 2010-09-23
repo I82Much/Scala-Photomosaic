@@ -41,6 +41,7 @@ package net.developmentality.photo {
 // }
 
 
+case class Metadata(originalImage:File, avgColor:Color, thumbnail:BufferedImage){}
 
 /**
  * The photo index is a plain text, CSV file consisting of 
@@ -50,41 +51,58 @@ package net.developmentality.photo {
  * In the index creation process, the images are
 */
 object PhotoIndexer {
+  val FIELD_DELIMITER = "|";
+  val FILE_NAME_INDEX = 0
+  val AVG_COLOR_INDEX = 1
+  val SHRUNKEN_IMAGE_INDEX = 2
+
+  type PhotoIndex = Map[File, Metadata]
   
-  type PhotoMetadata = Tuple3[File,Color,BufferedImage]
-  type PhotoIndex = Map[File, PhotoMetadata]
-  
-  
+  // Given a file with entries for file name, the int representation of the average
+  // color, and the file path for the thumbnail, reconstitutes an index
   def loadIndex(indexLoc:File):PhotoIndex = {
-    null
+    // An iterator of lines in the file; note that they have newline control characters
+    val lines = scala.io.Source.fromFile(indexLoc).getLines
+    
+    // Each line already consists of a file, color, and thumbnail
+    val metadata:Seq[Metadata] = lines.map(parseLine).toList
+    // Strip out the originalImage field out of each metadata entry
+    val extractedFiles = metadata.map(_.originalImage)
+    extractedFiles.zip(metadata).toMap
+  }
+  
+  def parseLine(indexRow:String):Metadata = {
+    val entries = indexRow.split(FIELD_DELIMITER)
+    
+    val theFile:File = new File(entries(FILE_NAME_INDEX))
+    val color:Color = Color.decode(entries(AVG_COLOR_INDEX))
+    val shrunkenImageFile:File = new File(entries(SHRUNKEN_IMAGE_INDEX))
+    val shrunkenImage:BufferedImage = ImageIO.read(shrunkenImageFile)
+    Metadata(theFile, color, shrunkenImage)
   }
   
 
   /**
-  * Creates an 
+  * For each file, calculates the average color and also creates a small thumbnail
+  * of each image.  Each of the files should be an image file in the format that
+  * ImageIO knows how to read (e.g. png, jpg)
   */
-  def createIndex(images:Seq[File], outputLoc:File, 
-    thumbnailOutput:File,
-    width:Int, height:Int):PhotoIndex = {
-
+  def createIndex(images:Seq[File], 
+    indexOutputLoc:File, 
+    thumbnailOutputDir:File,
+    thumbnailWidth:Int, thumbnailHeight:Int):PhotoIndex = {
       
-      // Create the BufferedImage, calculate average color
-      images.map(x => 
+      val metadata = images.map(x => 
         {
           val buffImg:BufferedImage = ImageIO.read(x)
           val avgColor:Color = PhotoMosaic.calculateColor(buffImg)
-          val shrunken:BufferedImage = shrinkSwatch(buffImg, width, height)
-        
+          val shrunken:BufferedImage = shrinkSwatch(buffImg, thumbnailWidth, thumbnailHeight)
+          Metadata(x, avgColor, shrunken)
         }
       )
-      null
+      images.zip(metadata).toMap:PhotoIndex
   }
-  
-  def createRow(file:File):PhotoMetadata = {
-    null
-  }
-  
-  
+      
   def shrinkImage(file:File): Unit = {
     println("Shrinking image " + file)
     
@@ -111,12 +129,7 @@ object PhotoIndexer {
     graphics2D.dispose()
     scaledImage
   }
-  
-  object PhotoIndex {
-    
-
-  }
-  
+      
 }
 
 
@@ -127,51 +140,66 @@ object PhotoMosaic {
   implicit def color2RichColor(x: Color) = new RichColor(x)
   
   val sampleSize = 40
+  
+  val THUMBNAIL_WIDTH = 40
+  val THUMBNAIL_HEIGHT = 30
+  
+  
+  
     
     
   // TODO: Add command line arguments
   // -i, in, index = index file
   // -t, target = target image file (must be a format that ImageIO can read)
   // -pix [picture1 .. pictureN]
-  def main(args: Array[String]) {
+  def main(args: Array[String]):Unit = {
+    if (args.length == 0) {
+      Console.println("Usage: ")
+      Console.println("PhotoMosaic file1 ... fileN")
+      System.exit(1)
+    }
+    
+    
     val files = args.map(new File(_))
     
     val indexLoc = files.findIndexOf(_.getName().equals("index.txt"))
     
-    val index:Seq[Tuple2[File,Color]] =
+    val index:PhotoIndexer.PhotoIndex =
       // Index already exists
       if (indexLoc >= 0) {
-        loadIndex(args(indexLoc))
+        PhotoIndexer.loadIndex(new File(args(indexLoc)))
       }
       else {
-        createIndex(files)
+        PhotoIndexer.createIndex(files, 
+          new File("index.txt"), 
+          new File("Thumbnails"), 
+          THUMBNAIL_WIDTH, 
+          THUMBNAIL_HEIGHT)
       }
     
     val target = files(0)
-    val mosaic:BufferedImage = photoMosaicize(target, index)
-    // ImageIO.write(mosaic,"png",new File("testmosaic.png"))
-    
-    null
+    val mosaic:BufferedImage = photoMosaicize(target, index, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
+    ImageIO.write(mosaic,"png",new File("testmosaic.png"))
   }
   
   // TODO: use a class to represent the index
-  def photoMosaicize(targetFile:File, index:Seq[Tuple2[File,Color]]): BufferedImage = {
+  def photoMosaicize(targetFile:File, 
+    index:PhotoIndexer.PhotoIndex, 
+    thumbnailWidth:Int, 
+    thumbnailHeight:Int): BufferedImage = {
     
     val buffImage = ImageIO.read(targetFile)
+    
+
     val patchSampleSize = 30
     val patchWidth = patchSampleSize
     val patchHeight = patchSampleSize
         
-    val targetSquareSize = 20
-    
-        
     val numHorizontalPatches = buffImage.getWidth() / patchWidth
     val numVerticalPatches = buffImage.getHeight() / patchHeight
     
-    val mosaic = new BufferedImage(targetSquareSize * numHorizontalPatches, targetSquareSize * numVerticalPatches, BufferedImage.TYPE_INT_RGB)
+    val mosaic = new BufferedImage(thumbnailWidth * numHorizontalPatches, thumbnailHeight * numVerticalPatches, BufferedImage.TYPE_INT_RGB)
     val graphics2D = mosaic.createGraphics()
-
-    val imageMap = createSmallImageMap(index)
 
     var counter = 1
     val numSubImages = numHorizontalPatches * numVerticalPatches
@@ -189,11 +217,11 @@ object PhotoMosaic {
         // graphics2D.fillRect(2*x,2*y,20,20)
         
 
-        var x2 = i * targetSquareSize
-        var y2 = j * targetSquareSize
-        val nearest = getNearestColorImage(avgImageColor, imageMap)
+        var x2 = i * thumbnailWidth
+        var y2 = j * thumbnailHeight
+        val nearest = getNearestColorImage(avgImageColor, index)
         
-        graphics2D.drawImage(nearest, x2, y2, targetSquareSize, targetSquareSize, null)
+        graphics2D.drawImage(nearest, x2, y2, thumbnailWidth, thumbnailHeight, null)
 
         val percent = 100.0 * counter / numSubImages
         // TODO: for GUI version, use a display bar
@@ -201,55 +229,39 @@ object PhotoMosaic {
           println(percent + " completed (" + counter + " of" + numSubImages + ")")
         }
         counter+=1
-        
-
       }
     }
     mosaic
   }
   
   
-  def createSmallImageMap(colorMap:Seq[Tuple2[File,Color]]): Map[BufferedImage,Color] = {
-    var map:Map[BufferedImage,Color] = Map()
-    for (x <- colorMap) {
-      val theFile = x._1
-      val theColor = x._2
-      val filePath = theFile.getPath().replace(".JPG","_small.png")
-      println("Adding " + filePath + " with color " + theColor + " to map.")
-      map += (ImageIO.read(new File(filePath)) -> theColor)
-      null
-    }
-    map
-  }
-  
-  // Sort the Colors 
-  
+
   // Calculates the BufferedImage with the single best 
-  def getNearestColorImage(color: Color, colorMap:Map[BufferedImage,Color]): BufferedImage = {
+  def getNearestColorImage(color: Color, photoIndex:PhotoIndexer.PhotoIndex): BufferedImage = {
     // Find image with closest average color
-    val elements:List[(BufferedImage,Color)] = colorMap.elements.toList
+    val elements:Iterable[(BufferedImage,Color)] = photoIndex.values.map(x=>(x.thumbnail, x.avgColor))
     val closestElem = elements.reduceLeft(
-      (e1,e2) => (if (color.distance(e1._2) < color.distance(e2._2)) e1 else e2)
+          (e1,e2) => (if (color.distance(e1._2) < color.distance(e2._2)) e1 else e2)
     )
     closestElem._1
   }
   
-  /**
-  * Calculates the 
-  */
-  def getNearestColorImages(targetColor: Color, colorMap:Map[BufferedImage, Color]): Seq[BufferedImage] = {
-    val keys:List[BufferedImage] = colorMap.keys.toList
-    keys.sort((c1,c2) =>
-      colorMap(c1).distance(targetColor) < colorMap(c2).distance(targetColor)
-    )
-    keys
-  }
+  // /**
+  //   * Calculates the 
+  //   */
+  //   def getNearestColorImages(targetColor: Color, colorMap:Map[BufferedImage, Color]): Seq[BufferedImage] = {
+  //     val keys:List[BufferedImage] = colorMap.keys.toList
+  //     keys.sort((c1,c2) =>
+  //       colorMap(c1).distance(targetColor) < colorMap(c2).distance(targetColor)
+  //     )
+  //     keys
+  //   }
  
   
   // Given a sequence of colors, sort them in order of proximity to the target
   // color
   def sortColors(colors:List[Color], targetColor:Color): List[Color] = {
-    colors.sort( (c1,c2) =>
+    colors.sortWith( (c1,c2) =>
       c1.distance(targetColor) < c2.distance(targetColor)
     )
   }
@@ -265,34 +277,9 @@ object PhotoMosaic {
     img
   }
 
-  // Given the path to an index file, reads in all the text and extracts the
-  // saved data
-  def loadIndex(indexLoc:String): Seq[Tuple2[File, Color]] = {
-    // An iterator of lines in the file; note that they have newline control characters
-    val lines = scala.io.Source.fromFile(indexLoc).getLines
-    
-    // Each line already consists of a file, color 
-    lines.map(extractFileAndColor).toList
-    
-  }
   
-  // Lines are csv: file, red, green, blue
-  def extractFileAndColor(indexString:String) : Tuple2[File,Color] = {
-    // remove newline, 
-    val trimmed = indexString.trim()
-    val values = trimmed.split(",")
-    val fileLoc = values(0).toString()
-    val (red, green, blue) = (values(1).toInt, values(2).toInt, values(3).toInt)
-    (new File(fileLoc), new Color(red, green,blue))
-  }
   
-  def createIndex(files: Seq[File]): Seq[Tuple2[File, Color]] = {
-    // Calculate the average color of each image
-    val indices = files.map( 
-      x=> (x, calculateColor( ImageIO.read(x) ) ) 
-    )
-    indices
-  }
+
   
   // A raster is an abstraction of a piece of an image and the underlying
   // pixel data.
@@ -370,7 +357,7 @@ class RichColor(original:Color) {
   
   def euclideanDistance(other:Color):Double = {
     val squared = euclideanDistanceSquared(other)
-    Math.sqrt(squared)
+    math.sqrt(squared)
   }
  
   /** Currently define the distance function as the squared euclidean distance, but this can be changed*/
