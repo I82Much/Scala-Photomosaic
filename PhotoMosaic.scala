@@ -53,8 +53,7 @@ case class Metadata(originalImage:File, avgColor:Color, thumbnail:BufferedImage)
  * In the index creation process, the images are
 */
 object PhotoIndexer {
-  // Careful with pipes - you need to escape the pipe, since it has meaning in regexp
-  val FIELD_DELIMITER = "\\|";
+  val FIELD_DELIMITER = ",";
   val FILE_NAME_INDEX = 0
   val AVG_COLOR_INDEX = 1
   val SHRUNKEN_IMAGE_INDEX = 2
@@ -101,6 +100,9 @@ object PhotoIndexer {
         {
           val file = tuple._1
           val index = tuple._2 
+          
+          Console.println("File: " + file)
+          
           val buffImg:BufferedImage = ImageIO.read(file)
           val avgColor:Color = PhotoMosaic.calculateColor(buffImg)
           val shrunken:BufferedImage = shrinkSwatch(buffImg, thumbnailWidth, thumbnailHeight)
@@ -370,26 +372,10 @@ object PhotoMosaic {
     new Color(redSum / numPixels, greenSum / numPixels, blueSum / numPixels)
   }
   
-  // def calculateColorFromRaster(raster: Raster): Color = {
-  //     val minX = raster.getMinX()
-  //     val minY = raster.getMinY()
-  //   
-  //     val height = raster.getHeight()
-  //     val width = raster.getWidth()
-  //     val numPixels = height * width
-  //   
-  //     val numChannels = raster.getNumBands() 
-  //   
-  //     val pixelBuffer = new Array[Int](width*height*numChannels)
-  //     val pixels = raster.getPixels(minX,minY,width,height,pixelBuffer)
-  //     
-  //     
-  //   }
 
   def calculateColor(f:BufferedImage): Color = {
     calculateColorFromRaster(f.getRaster())
   }
-    
 }
 
 
