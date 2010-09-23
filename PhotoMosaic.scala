@@ -53,6 +53,7 @@ case class Metadata(originalImage:File, avgColor:Color, thumbnail:BufferedImage)
  * In the index creation process, the images are
 */
 object PhotoIndexer {
+  // Careful with pipes - you need to escape the pipe, since it has meaning in regexp
   val FIELD_DELIMITER = "\\|";
   val FILE_NAME_INDEX = 0
   val AVG_COLOR_INDEX = 1
@@ -95,13 +96,21 @@ object PhotoIndexer {
   */
   def createIndex(images:Seq[File], 
     thumbnailWidth:Int, thumbnailHeight:Int):PhotoIndex = {
-      
-      val metadata = images.map(x => 
+      val numEntries = images.size
+      val metadata = images.zipWithIndex.map(tuple => 
         {
-          val buffImg:BufferedImage = ImageIO.read(x)
+          val file = tuple._1
+          val index = tuple._2 
+          val buffImg:BufferedImage = ImageIO.read(file)
           val avgColor:Color = PhotoMosaic.calculateColor(buffImg)
           val shrunken:BufferedImage = shrinkSwatch(buffImg, thumbnailWidth, thumbnailHeight)
-          Metadata(x, avgColor, shrunken)
+          
+          if ((index + 1) % 1 == 0) {
+            val percent = (100.0 * (index + 1))/numEntries
+            Console.println(percent + "% done; " + (numEntries - (index + 1)) + " entries remaining")
+          }
+          
+          Metadata(file, avgColor, shrunken)
         }
       )
       images.zip(metadata).toMap:PhotoIndex
@@ -183,11 +192,8 @@ object PhotoMosaic {
   
   val sampleSize = 40
   
-  val THUMBNAIL_WIDTH = 40
-  val THUMBNAIL_HEIGHT = 30
-  
-  
-  
+  val THUMBNAIL_WIDTH = 80
+  val THUMBNAIL_HEIGHT = 60
     
     
   // TODO: Add command line arguments
@@ -222,7 +228,10 @@ object PhotoMosaic {
     
     
     val target = files(0)
-    val mosaic:BufferedImage = photoMosaicize(target, index, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
+    
+    
+    
+    val mosaic:BufferedImage = photoMosaicize(target, index, THUMBNAIL_WIDTH.min(sampleSize), THUMBNAIL_HEIGHT.min(sampleSize))
     ImageIO.write(mosaic,"png",new File("testmosaic.png"))
   }
   
@@ -235,7 +244,7 @@ object PhotoMosaic {
     val buffImage = ImageIO.read(targetFile)
     
 
-    val patchSampleSize = 30
+    val patchSampleSize = sampleSize
     val patchWidth = patchSampleSize
     val patchHeight = patchSampleSize
         
