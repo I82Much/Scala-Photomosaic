@@ -192,7 +192,7 @@ object PhotoMosaic {
   
   implicit def color2RichColor(x: Color) = new RichColor(x)
   
-  val sampleSize = 40
+  val sampleSize = 20
   
   val THUMBNAIL_WIDTH = 80
   val THUMBNAIL_HEIGHT = 60
@@ -210,7 +210,11 @@ object PhotoMosaic {
     }
     val files = args.map(new File(_))
     
-    val indexLoc = files.findIndexOf(_.getName().equals("index.txt"))
+    val indexLoc = files.findIndexOf(_.getName().contains(".txt"))
+    
+    
+    
+    val target = files.filter(_.getName().toLowerCase().endsWith(".jpg"))(0)
     
     val index:PhotoIndexer.PhotoIndex =
       // Index already exists
@@ -227,11 +231,7 @@ object PhotoMosaic {
     if (indexLoc < 0) {
       PhotoIndexer.saveIndex(index, new File("index.txt"), new File("Thumbnails"))
     }
-    
-    
-    val target = files(0)
-    
-    
+
     
     val mosaic:BufferedImage = photoMosaicize(target, index, THUMBNAIL_WIDTH.min(sampleSize), THUMBNAIL_HEIGHT.min(sampleSize))
     ImageIO.write(mosaic,"png",new File("testmosaic.png"))
@@ -341,9 +341,11 @@ object PhotoMosaic {
   // For instance, we can get a raster than is of the upper left twenty
   // pixel square of an image
   def calculateColorFromRaster(raster:Raster): Color = {
-    var redSum = 0
-    var greenSum = 0
-    var blueSum = 0
+    // Important: If we don't keep the sums as Longs, they can easily
+    // overflow when processing a large overexposed image
+    var redSum:Long = 0
+    var greenSum:Long = 0
+    var blueSum:Long = 0
   
     val minX = raster.getMinX()
     val minY = raster.getMinY()
@@ -369,7 +371,12 @@ object PhotoMosaic {
       greenSum+=green
       blueSum+=blue
     }
-    new Color(redSum / numPixels, greenSum / numPixels, blueSum / numPixels)
+    
+    val red:Int = (redSum / numPixels).asInstanceOf[Int]
+    val green:Int = (greenSum / numPixels).asInstanceOf[Int]
+    val blue:Int = (blueSum / numPixels).asInstanceOf[Int]
+
+    new Color(red, green, blue)
   }
   
 
