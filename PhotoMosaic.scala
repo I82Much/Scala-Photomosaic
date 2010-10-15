@@ -255,8 +255,23 @@ object PhotoMosaic {
       val index:PhotoIndexer.PhotoIndex = PhotoIndexer.loadIndex(new File(args(2)))
       val target = new File(args(3))
 
-      val mosaic:BufferedImage = photoMosaicize(target, index, thumbnailWidth, thumbnailHeight)
-      ImageIO.write(mosaic,"png",new File("testmosaic.png"))
+
+      while (true) {
+        Console.print("Width: ")
+        val width = Console.readInt()
+        Console.println()
+        Console.print("Height: ")
+        val height = Console.readInt()
+        Console.println("Num repetitions: ")
+        val numRepetitions = Console.readInt()
+        Console.println("Output name: ")
+        val outputName = Console.readLine().trim()
+      
+        val mosaic:BufferedImage = photoMosaicize(target, index, thumbnailWidth, thumbnailHeight, numRepetitions)
+        ImageIO.write(mosaic,"jpg",new File(outputName))
+        
+        Console.println("Finished.  Again?")
+      }
     }
 
 
@@ -266,7 +281,10 @@ object PhotoMosaic {
   def photoMosaicize(targetFile:File, 
     index:PhotoIndexer.PhotoIndex, 
     thumbnailWidth:Int, 
-    thumbnailHeight:Int): BufferedImage = {
+    thumbnailHeight:Int,
+    maxNumRepetitions:Int): BufferedImage = {
+    
+    var indexCopy = index
     
     val buffImage = ImageIO.read(targetFile)
     
@@ -274,13 +292,13 @@ object PhotoMosaic {
     val repetitionMap = new HashMap[BufferedImage, java.lang.Integer]
     index.values.foreach { x => repetitionMap.put(x.thumbnail, 0) }
     
-    val repetitionLimited = MAX_NUM_REPETITIONS > 0
+    val repetitionLimited = maxNumRepetitions > 0
     // Will be used if we need to limit repetitions
-    val colorMap:Map[BufferedImage,Color] = 
-      // if (repetitionLimited) {
-        index.values.map(data => (data.thumbnail, data.avgColor) ).toMap
-      // }
-      // else { new Map[BufferedImage,Color] }
+    // var colorMap:Map[BufferedImage,Color] = 
+        // index.values.map(data => (data.thumbnail, data.avgColor) ).toMap
+    
+    // PhotoIndex = Map[File, Metadata]
+    val buffImageToFile:Map[BufferedImage, File] = indexCopy.iterator.map(x => (x._2.thumbnail, x._1)).toMap
     
     
     
@@ -313,24 +331,17 @@ object PhotoMosaic {
         var x2 = i * thumbnailWidth
         var y2 = j * thumbnailHeight
         
-        val nearest:BufferedImage = 
-          if (repetitionLimited) {
-            val choices = getNearestColorImages(avgImageColor, colorMap)
-            Console.println(choices(0))
-            
-            
-            // Pick the first element which hasn't been repeated too many times,
-            // or the first element if somehow all the images have been used
-            // too many times
-            val result = choices.find(img => repetitionMap.get(img).intValue < MAX_NUM_REPETITIONS).getOrElse(choices(0))
-            repetitionMap.put(result, repetitionMap.get(result).intValue + 1)
-            result
+        val nearest:BufferedImage = getNearestColorImage(avgImageColor, indexCopy)
+        if (repetitionLimited) {
+          val numTimesRepeated:Int = repetitionMap.get(nearest).intValue + 1
+          repetitionMap.put(nearest, numTimesRepeated)
+          
+          if (numTimesRepeated >= maxNumRepetitions) {
+            val nearestFile = buffImageToFile.get(nearest)
+            println("Removing " + nearestFile + " from consideration; it has been used " + numTimesRepeated + " times")
+            indexCopy -= nearestFile.get
           }
-          // Allow an image to be used as many times as we want
-          else {
-            getNearestColorImage(avgImageColor, index)
-          }
-        
+        }        
         graphics2D.drawImage(nearest, x2, y2, thumbnailWidth, thumbnailHeight, null)
 
         val percent = 100.0 * counter / numSubImages
