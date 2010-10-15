@@ -5,21 +5,25 @@ import java.awt.Color
 import java.awt.RenderingHints
 import java.awt.image.Raster
 import java.awt.Rectangle
+import java.util.HashMap
 
 // Based on the article (but not source) from 
 // http://www.drdobbs.com/184404848
 
 // Logically a few steps:
 // Create an index out of all the photos you want to consider; this index
-// consists of a mapping from image file to average color in the image
-
+// consists of a mapping from image file to average color in the image, as well as
+// to the path of a saved thumbnail of the image.  Since the images will be
+// rendered small in the final image, there's no need to deal with the full
+// sized images.  This allows us to avoid a ton of I/O (we read all the thumbnails once,
+// and then can store them all in memory while we create the photomosaic)
+//
 // For the source image, examine rectangular regions of the image.  Replace
 // these regions with the picture calculated in the index with the most similar
 // average color.
 //
 // Output the photomosaic to a file
-
-
+//
 // TODO: take into account the repetition of the images; set a limit on number of
 // times an image can appear in the final product
 // TODO: integrate with iPhoto
@@ -194,8 +198,13 @@ object PhotoMosaic {
   
   val sampleSize = 20
   
-  val THUMBNAIL_WIDTH = 80
-  val THUMBNAIL_HEIGHT = 60
+  val THUMBNAIL_WIDTH = 320//80//160
+  val THUMBNAIL_HEIGHT = 240//60//120
+  
+  // Allow a single image to repeat at most 5 times; if negative allow
+  // infinite number of repetitions
+  val MAX_NUM_REPETITIONS = -1//5
+  
     
     
   // TODO: Add command line arguments
@@ -208,33 +217,49 @@ object PhotoMosaic {
       Console.println("PhotoMosaic file1 ... fileN")
       System.exit(1)
     }
-    val files = args.map(new File(_))
     
-    val indexLoc = files.findIndexOf(_.getName().contains(".txt"))
-    
+    val INDEXING = false
     
     
-    val target = files.filter(_.getName().toLowerCase().endsWith(".jpg"))(0)
+    if (INDEXING) {
+      val thumbnailWidth = THUMBNAIL_WIDTH
+      val thumbnailHeight = THUMBNAIL_HEIGHT
     
-    val index:PhotoIndexer.PhotoIndex =
-      // Index already exists
-      if (indexLoc >= 0) {
-        PhotoIndexer.loadIndex(new File(args(indexLoc)))
+      val files = args.map(new File(_))
+      val indexLoc = files.findIndexOf(_.getName().contains(".txt"))
+    
+      val target = files.filter(_.getName().toLowerCase().endsWith(".jpg"))(0)
+    
+      val index:PhotoIndexer.PhotoIndex =
+        // Index already exists
+        if (indexLoc >= 0) {
+          PhotoIndexer.loadIndex(new File(args(indexLoc)))
+        }
+        else {
+          PhotoIndexer.createIndex(files, 
+            THUMBNAIL_WIDTH, 
+            THUMBNAIL_HEIGHT)
+        }
+    
+    
+      if (indexLoc < 0) {
+        PhotoIndexer.saveIndex(index, new File("index.txt"), new File("Thumbnails"))
+        System.exit(1)
       }
-      else {
-        PhotoIndexer.createIndex(files, 
-          THUMBNAIL_WIDTH, 
-          THUMBNAIL_HEIGHT)
-      }
+    }
     
     
-    if (indexLoc < 0) {
-      PhotoIndexer.saveIndex(index, new File("index.txt"), new File("Thumbnails"))
+    else {
+      val thumbnailWidth = Integer.parseInt(args(0))
+      val thumbnailHeight = Integer.parseInt(args(1))
+      val index:PhotoIndexer.PhotoIndex = PhotoIndexer.loadIndex(new File(args(2)))
+      val target = new File(args(3))
+
+      val mosaic:BufferedImage = photoMosaicize(target, index, thumbnailWidth, thumbnailHeight)
+      ImageIO.write(mosaic,"png",new File("testmosaic.png"))
     }
 
-    
-    val mosaic:BufferedImage = photoMosaicize(target, index, THUMBNAIL_WIDTH.min(sampleSize), THUMBNAIL_HEIGHT.min(sampleSize))
-    ImageIO.write(mosaic,"png",new File("testmosaic.png"))
+
   }
   
   // TODO: use a class to represent the index
@@ -245,10 +270,23 @@ object PhotoMosaic {
     
     val buffImage = ImageIO.read(targetFile)
     
-
+    // Keep track of how many times each thumbnail has been used
+    val repetitionMap = new HashMap[BufferedImage, java.lang.Integer]
+    index.values.foreach { x => repetitionMap.put(x.thumbnail, 0) }
+    
+    val repetitionLimited = MAX_NUM_REPETITIONS > 0
+    // Will be used if we need to limit repetitions
+    val colorMap:Map[BufferedImage,Color] = 
+      // if (repetitionLimited) {
+        index.values.map(data => (data.thumbnail, data.avgColor) ).toMap
+      // }
+      // else { new Map[BufferedImage,Color] }
+    
+    
+    
     val patchSampleSize = sampleSize
-    val patchWidth = patchSampleSize
-    val patchHeight = patchSampleSize
+    val patchWidth = thumbnailWidth // patchSampleSize
+    val patchHeight = thumbnailHeight // patchSampleSize
         
     val numHorizontalPatches = buffImage.getWidth() / patchWidth
     val numVerticalPatches = buffImage.getHeight() / patchHeight
@@ -274,7 +312,24 @@ object PhotoMosaic {
 
         var x2 = i * thumbnailWidth
         var y2 = j * thumbnailHeight
-        val nearest = getNearestColorImage(avgImageColor, index)
+        
+        val nearest:BufferedImage = 
+          if (repetitionLimited) {
+            val choices = getNearestColorImages(avgImageColor, colorMap)
+            Console.println(choices(0))
+            
+            
+            // Pick the first element which hasn't been repeated too many times,
+            // or the first element if somehow all the images have been used
+            // too many times
+            val result = choices.find(img => repetitionMap.get(img).intValue < MAX_NUM_REPETITIONS).getOrElse(choices(0))
+            repetitionMap.put(result, repetitionMap.get(result).intValue + 1)
+            result
+          }
+          // Allow an image to be used as many times as we want
+          else {
+            getNearestColorImage(avgImageColor, index)
+          }
         
         graphics2D.drawImage(nearest, x2, y2, thumbnailWidth, thumbnailHeight, null)
 
@@ -301,16 +356,18 @@ object PhotoMosaic {
     closestElem._1
   }
   
-  // /**
-  //   * Calculates the 
-  //   */
-  //   def getNearestColorImages(targetColor: Color, colorMap:Map[BufferedImage, Color]): Seq[BufferedImage] = {
-  //     val keys:List[BufferedImage] = colorMap.keys.toList
-  //     keys.sort((c1,c2) =>
-  //       colorMap(c1).distance(targetColor) < colorMap(c2).distance(targetColor)
-  //     )
-  //     keys
-  //   }
+  /**
+   * returns a sorted list of buffered images, where the first element is the
+   * closest in average color to the target color, and the last image is
+   * the furthest away
+   */
+    def getNearestColorImages(targetColor:Color, colorMap:Map[BufferedImage,Color]): Seq[BufferedImage] = {
+      val keys = colorMap.keys.toList
+      keys.sortWith( (image1,image2) =>
+        colorMap(image1).distance(targetColor) < colorMap(image2).distance(targetColor)
+      )
+      keys
+    }
  
   
   // Given a sequence of colors, sort them in order of proximity to the target
