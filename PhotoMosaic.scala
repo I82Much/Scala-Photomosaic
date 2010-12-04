@@ -6,6 +6,7 @@ import java.awt.RenderingHints
 import java.awt.image.Raster
 import java.awt.Rectangle
 import java.util.HashMap
+import java.awt.AlphaComposite
 
 // Based on the article (but not source) from 
 // http://www.drdobbs.com/184404848
@@ -260,29 +261,44 @@ object PhotoMosaic {
       
 
       while (true) {
+        val defaultNumColumns = 40  
+        val defaultNumRows = 30
+        val defaultImageWidth = 2000
+        val defaultImageHeight = 1500
+        
+                  
         Console.println("Pick an image:")  
         Console.println(images.zipWithIndex.map(x=>x._2 + "\t" + x._1).mkString("\n"))
         val indexNumber = Console.readInt()
         val target:File = new File(images(indexNumber))
           
         Console.println("Using " + target)  
-        Console.print("Number of columns:")  
-        val numColumns = Console.readInt()  
-        Console.print("Number of rows:")  
-        val numRows = Console.readInt()  
+        Console.print("Number of columns: (" + defaultNumColumns + ")")  
+        val numColumns:Int = defaultNumColumns//Console.readInt()  
+        Console.print("Number of rows: ( " + defaultNumRows + ")")  
+        val numRows = defaultNumRows//Console.readInt()  
                   
         Console.print("Image Width: ")
-        val width = Console.readInt()
+        // val width = Console.readInt()
+        val width = defaultImageWidth 
+        
         Console.print("Image Height: ")
-        val height = Console.readInt()
+        // val height = Console.readInt()
+        val height = defaultImageHeight
+        
+        
         // Console.print("Num repetitions: ")
+        
+        Console.print("Opacity:")
+        val opacity = Console.readFloat()
+        
         val numRepetitions = -1 //Console.readInt()
         Console.print("Output name: ")
         val outputName = Console.readLine().trim()
       
         val targetImage:BufferedImage = ImageIO.read(target)
         
-        val mosaic:BufferedImage = photoMosaicize(targetImage, index, width, height, numRows, numColumns, numRepetitions)
+        val mosaic:BufferedImage = photoMosaicize(targetImage, index, opacity, width, height, numRows, numColumns, numRepetitions)
         ImageIO.write(mosaic,"jpg",new File(outputName))
         
         Console.println("Finished.  Again?")
@@ -299,7 +315,8 @@ object PhotoMosaic {
   * @param targetHeight 
   */
   def photoMosaicize(targetImage:BufferedImage, 
-    index:PhotoIndexer.PhotoIndex, 
+    index:PhotoIndexer.PhotoIndex,
+    opacity:Float, 
     targetWidth:Int,
     targetHeight:Int,
     numRows:Int,
@@ -338,6 +355,13 @@ object PhotoMosaic {
     var counter = 1
     val numSubImages = numRows * numColumns
     
+    // val opacity = 0.7f //1.0f 
+    
+    if (opacity > 0) {
+        // draw the original image in the background
+        graphics2D.drawImage(targetImage, 0, 0, productWidth, productHeight, null)
+        graphics2D.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity))
+    }
     // for each patch in the image
     for (row <- 0 until numRows) {
       for (column <- 0 until numColumns) {
@@ -348,10 +372,6 @@ object PhotoMosaic {
         val subImage = targetImage.getData(new Rectangle(x,y,sampleWidth,sampleHeight))
         val avgImageColor = calculateColorFromRaster(subImage)
         
-        // This way merely draws the block of average color
-        // graphics2D.setColor(avgImageColor)
-        // graphics2D.fillRect(2*x,2*y,20,20)
-
         // The x,y coordinate of upper left of subimage in our target mosaic
         var x2 = column * thumbnailWidth
         var y2 = row * thumbnailHeight
@@ -367,9 +387,18 @@ object PhotoMosaic {
             indexCopy -= nearestFile.get
           }
         }        
+        val DRAW_AVG_COLOR_BLOCKS = false
+
         
-        // We have found the nearest color image, draw it into the mosaic
-        graphics2D.drawImage(nearest, x2, y2, thumbnailWidth, thumbnailHeight, null)
+        if (DRAW_AVG_COLOR_BLOCKS) {
+            // This way merely draws the block of average color
+            graphics2D.setColor(avgImageColor)
+            graphics2D.fillRect(x2,y2,thumbnailWidth,thumbnailHeight)
+        }
+        // else {
+            // We have found the nearest color image, draw it into the mosaic
+            graphics2D.drawImage(nearest, x2, y2, thumbnailWidth, thumbnailHeight, null)
+        // }
 
         val percent = 100.0 * counter / numSubImages
         // TODO: for GUI version, use a display bar
