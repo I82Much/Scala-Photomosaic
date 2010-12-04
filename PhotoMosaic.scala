@@ -198,8 +198,8 @@ object PhotoMosaic {
   
   val sampleSize = 20
   
-  val THUMBNAIL_WIDTH = 320//80//160
-  val THUMBNAIL_HEIGHT = 240//60//120
+  val THUMBNAIL_WIDTH = 640//80//160
+  val THUMBNAIL_HEIGHT = 480//60//120
   
   // Allow a single image to repeat at most 5 times; if negative allow
   // infinite number of repetitions
@@ -214,11 +214,11 @@ object PhotoMosaic {
   def main(args: Array[String]):Unit = {
     if (args.length == 0) {
       Console.println("Usage: ")
-      Console.println("PhotoMosaic file1 ... fileN")
+      Console.println("PhotoMosaic indexing file1 ... fileN")
       System.exit(1)
     }
     
-    val INDEXING = false
+    val INDEXING = false // args(0).toBoolean
     
     
     if (INDEXING) {
@@ -250,24 +250,39 @@ object PhotoMosaic {
     
     
     else {
-      val thumbnailWidth = Integer.parseInt(args(0))
-      val thumbnailHeight = Integer.parseInt(args(1))
-      val index:PhotoIndexer.PhotoIndex = PhotoIndexer.loadIndex(new File(args(2)))
-      val target = new File(args(3))
-
+      // val thumbnailWidth = Integer.parseInt(args(0))
+      //       val thumbnailHeight = Integer.parseInt(args(1))
+      //       val index:PhotoIndexer.PhotoIndex = PhotoIndexer.loadIndex(new File(args(2)))
+      //       val target = new File(args(3))
+      
+      val index:PhotoIndexer.PhotoIndex = PhotoIndexer.loadIndex(new File(args(0)))
+      val images:Array[String] = args.tail
+      
 
       while (true) {
-        Console.print("Width: ")
+        Console.println("Pick an image:")  
+        Console.println(images.zipWithIndex.map(x=>x._2 + "\t" + x._1).mkString("\n"))
+        val indexNumber = Console.readInt()
+        val target:File = new File(images(indexNumber))
+          
+        Console.println("Using " + target)  
+        Console.print("Number of columns:")  
+        val numColumns = Console.readInt()  
+        Console.print("Number of rows:")  
+        val numRows = Console.readInt()  
+                  
+        Console.print("Image Width: ")
         val width = Console.readInt()
-        Console.println()
-        Console.print("Height: ")
+        Console.print("Image Height: ")
         val height = Console.readInt()
-        Console.println("Num repetitions: ")
-        val numRepetitions = Console.readInt()
-        Console.println("Output name: ")
+        // Console.print("Num repetitions: ")
+        val numRepetitions = -1 //Console.readInt()
+        Console.print("Output name: ")
         val outputName = Console.readLine().trim()
       
-        val mosaic:BufferedImage = photoMosaicize(target, index, thumbnailWidth, thumbnailHeight, numRepetitions)
+        val targetImage:BufferedImage = ImageIO.read(target)
+        
+        val mosaic:BufferedImage = photoMosaicize(targetImage, index, width, height, numRows, numColumns, numRepetitions)
         ImageIO.write(mosaic,"jpg",new File(outputName))
         
         Console.println("Finished.  Again?")
@@ -277,59 +292,69 @@ object PhotoMosaic {
 
   }
   
-  // TODO: use a class to represent the index
-  def photoMosaicize(targetFile:File, 
+  /**
+  * @param targetFile
+  * @param index
+  * @param targetWidth how wide should the final image be, in pixels
+  * @param targetHeight 
+  */
+  def photoMosaicize(targetImage:BufferedImage, 
     index:PhotoIndexer.PhotoIndex, 
-    thumbnailWidth:Int, 
-    thumbnailHeight:Int,
+    targetWidth:Int,
+    targetHeight:Int,
+    numRows:Int,
+    numColumns:Int,
     maxNumRepetitions:Int): BufferedImage = {
     
     var indexCopy = index
-    
-    val buffImage = ImageIO.read(targetFile)
-    
+
     // Keep track of how many times each thumbnail has been used
     val repetitionMap = new HashMap[BufferedImage, java.lang.Integer]
     index.values.foreach { x => repetitionMap.put(x.thumbnail, 0) }
     
     val repetitionLimited = maxNumRepetitions > 0
-    // Will be used if we need to limit repetitions
-    // var colorMap:Map[BufferedImage,Color] = 
-        // index.values.map(data => (data.thumbnail, data.avgColor) ).toMap
     
-    // PhotoIndex = Map[File, Metadata]
+    // Map from the buffered image to the file that contains the buffered image
     val buffImageToFile:Map[BufferedImage, File] = indexCopy.iterator.map(x => (x._2.thumbnail, x._1)).toMap
     
     
+    val thumbnailWidth = targetWidth / numColumns
+    val thumbnailHeight = targetHeight / numRows
     
-    val patchSampleSize = sampleSize
-    val patchWidth = thumbnailWidth // patchSampleSize
-    val patchHeight = thumbnailHeight // patchSampleSize
-        
-    val numHorizontalPatches = buffImage.getWidth() / patchWidth
-    val numVerticalPatches = buffImage.getHeight() / patchHeight
+    // Due to integer truncation, the desired width/height might not perfectly line
+    // up with our grid.  Fudge the numbers slightly to allow the grid to be perfect
+    val productWidth = thumbnailWidth * numColumns
+    val productHeight = thumbnailHeight * numRows
     
-    val mosaic = new BufferedImage(thumbnailWidth * numHorizontalPatches, thumbnailHeight * numVerticalPatches, BufferedImage.TYPE_INT_RGB)
+    // We look at rectangular regions of the target image, calculate their average
+    // colors, and then pick images that match those colors.
+    val sampleWidth = targetImage.getWidth / numColumns
+    val sampleHeight = targetImage.getHeight / numRows
+    
+    // This is what we're creating
+    val mosaic:BufferedImage = new BufferedImage(productWidth, productHeight, BufferedImage.TYPE_INT_RGB)
     val graphics2D = mosaic.createGraphics()
 
     var counter = 1
-    val numSubImages = numHorizontalPatches * numVerticalPatches
+    val numSubImages = numRows * numColumns
     
     // for each patch in the image
-    for (i <- 0 until numHorizontalPatches) {
-      for (j <- 0 until numVerticalPatches) {
-        val x = i * patchWidth
-        val y = j * patchHeight
-        val subImage = buffImage.getData(new Rectangle(x,y,patchWidth,patchHeight))
+    for (row <- 0 until numRows) {
+      for (column <- 0 until numColumns) {
+        val x = column * sampleWidth
+        val y = row * sampleHeight
+        // This is the small rectangular region of the target image that we're 
+        // currently considering
+        val subImage = targetImage.getData(new Rectangle(x,y,sampleWidth,sampleHeight))
         val avgImageColor = calculateColorFromRaster(subImage)
         
         // This way merely draws the block of average color
         // graphics2D.setColor(avgImageColor)
         // graphics2D.fillRect(2*x,2*y,20,20)
-        
 
-        var x2 = i * thumbnailWidth
-        var y2 = j * thumbnailHeight
+        // The x,y coordinate of upper left of subimage in our target mosaic
+        var x2 = column * thumbnailWidth
+        var y2 = row * thumbnailHeight
         
         val nearest:BufferedImage = getNearestColorImage(avgImageColor, indexCopy)
         if (repetitionLimited) {
@@ -342,6 +367,8 @@ object PhotoMosaic {
             indexCopy -= nearestFile.get
           }
         }        
+        
+        // We have found the nearest color image, draw it into the mosaic
         graphics2D.drawImage(nearest, x2, y2, thumbnailWidth, thumbnailHeight, null)
 
         val percent = 100.0 * counter / numSubImages
