@@ -261,10 +261,10 @@ object PhotoMosaic {
       
 
       while (true) {
-        val defaultNumColumns = 40  
-        val defaultNumRows = 30
-        val defaultImageWidth = 2000
-        val defaultImageHeight = 1500
+        val defaultNumColumns = 120//80//40  
+        val defaultNumRows = 90//60//30
+        val defaultImageWidth = 3648*2
+        val defaultImageHeight = 2736*2
         
                   
         Console.println("Pick an image:")  
@@ -293,12 +293,19 @@ object PhotoMosaic {
         val opacity = Console.readFloat()
         
         val numRepetitions = -1 //Console.readInt()
+        
+        Console.print("Num closest images to consider:")
+        val numClosest = Console.readInt()
+        
+        
         Console.print("Output name: ")
         val outputName = Console.readLine().trim()
       
+      
         val targetImage:BufferedImage = ImageIO.read(target)
         
-        val mosaic:BufferedImage = photoMosaicize(targetImage, index, opacity, width, height, numRows, numColumns, numRepetitions)
+        
+        val mosaic:BufferedImage = photoMosaicize(targetImage, index, opacity, width, height, numRows, numColumns, numClosest, numRepetitions)
         ImageIO.write(mosaic,"jpg",new File(outputName))
         
         Console.println("Finished.  Again?")
@@ -321,6 +328,7 @@ object PhotoMosaic {
     targetHeight:Int,
     numRows:Int,
     numColumns:Int,
+    imagesToChooseFrom:Int,
     maxNumRepetitions:Int): BufferedImage = {
     
     var indexCopy = index
@@ -334,6 +342,9 @@ object PhotoMosaic {
     // Map from the buffered image to the file that contains the buffered image
     val buffImageToFile:Map[BufferedImage, File] = indexCopy.iterator.map(x => (x._2.thumbnail, x._1)).toMap
     
+    var colorMap:Map[BufferedImage,Color] = 
+        index.values.map(data => (data.thumbnail, data.avgColor)).toMap
+        
     
     val thumbnailWidth = targetWidth / numColumns
     val thumbnailHeight = targetHeight / numRows
@@ -355,7 +366,7 @@ object PhotoMosaic {
     var counter = 1
     val numSubImages = numRows * numColumns
     
-    // val opacity = 0.7f //1.0f 
+    val random = new java.util.Random()
     
     if (opacity > 0) {
         // draw the original image in the background
@@ -376,7 +387,28 @@ object PhotoMosaic {
         var x2 = column * thumbnailWidth
         var y2 = row * thumbnailHeight
         
-        val nearest:BufferedImage = getNearestColorImage(avgImageColor, indexCopy)
+        
+        val nearest:BufferedImage = 
+            if (imagesToChooseFrom > 1) {
+                val closestImages:Seq[BufferedImage] = getNearestColorImages(avgImageColor, colorMap)
+                
+                val closestFiles:Seq[File] = closestImages.map(buffImageToFile.get(_).get)
+                
+                // Console.println("Average image color for row " + row + " column " + column + " is " + avgImageColor)
+                // Console.println("Closest images: " + closestFiles)
+                
+                val randomIndex = random.nextInt(imagesToChooseFrom)
+                // Console.println("random index and image " + randomIndex + ", " + closestFiles(randomIndex))
+                // Console.println()
+                
+                // Randomly pick from among the n closest images
+                closestImages(randomIndex)
+                
+            }
+            else {
+                getNearestColorImage(avgImageColor, indexCopy)
+            }
+        
         if (repetitionLimited) {
           val numTimesRepeated:Int = repetitionMap.get(nearest).intValue + 1
           repetitionMap.put(nearest, numTimesRepeated)
@@ -430,10 +462,10 @@ object PhotoMosaic {
    */
     def getNearestColorImages(targetColor:Color, colorMap:Map[BufferedImage,Color]): Seq[BufferedImage] = {
       val keys = colorMap.keys.toList
-      keys.sortWith( (image1,image2) =>
+      val sortedKeys = keys.sortWith( (image1,image2) =>
         colorMap(image1).distance(targetColor) < colorMap(image2).distance(targetColor)
       )
-      keys
+      sortedKeys
     }
  
   
