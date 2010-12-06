@@ -197,6 +197,8 @@ object PhotoMosaic {
   
   implicit def color2RichColor(x: Color) = new RichColor(x)
   
+  type ImageGrid = Array[Array[Seq[BufferedImage]]
+  
   val sampleSize = 20
   
   val THUMBNAIL_WIDTH = 640//80//160
@@ -311,9 +313,61 @@ object PhotoMosaic {
         Console.println("Finished.  Again?")
       }
     }
-
-
   }
+  
+  
+
+  
+  def createMosaic(targetImage:BufferedImage, 
+      index:PhotoIndexer.PhotoIndex,
+      opacity:Float, 
+      targetWidth:Int,
+      targetHeight:Int,
+      numRows:Int,
+      numColumns:Int)   : ImageGrid = {
+          
+          var indexCopy = index
+
+          // Map from the buffered image to that image's average color
+          var colorMap:Map[BufferedImage,Color] = 
+          index.values.map(data => (data.thumbnail, data.avgColor)).toMap
+
+          // We look at rectangular regions of the target image, calculate their average
+          // colors, and then pick images that match those colors.
+          val sampleWidth = targetImage.getWidth / numColumns
+          val sampleHeight = targetImage.getHeight / numRows
+
+          // Used to report the progress of the process
+          var counter = 1
+          val numSubImages = numRows * numColumns
+          
+          val imageGrid:ImageGrid = Array.fill(numRows, numColumns)(Nil)
+          
+          // for each patch in the image
+          for (row <- 0 until numRows) {
+            for (column <- 0 until numColumns) {
+              val x = column * sampleWidth
+              val y = row * sampleHeight
+              // This is the small rectangular region of the target image that we're 
+              // currently considering
+              val subImage = targetImage.getData(new Rectangle(x,y,sampleWidth,sampleHeight))
+              val avgImageColor = calculateColorFromRaster(subImage)
+
+              val nearest:Seq[BufferedImage] = getNearestColorImages(avgImageColor, colorMap)
+              
+              imageGrid(row)(column) = nearest
+              
+              val percent = 100.0 * counter / numSubImages
+              // TODO: for GUI version, use a display bar
+              if (counter % 100 == 0) {
+                println(percent + " completed (" + counter + " of" + numSubImages + ")")
+              }
+              counter+=1
+            }
+          }
+          imageGrid
+  }
+  
   
   /**
   * @param targetFile
@@ -342,6 +396,7 @@ object PhotoMosaic {
     // Map from the buffered image to the file that contains the buffered image
     val buffImageToFile:Map[BufferedImage, File] = indexCopy.iterator.map(x => (x._2.thumbnail, x._1)).toMap
     
+    // Map from the buffered image to that image's average color
     var colorMap:Map[BufferedImage,Color] = 
         index.values.map(data => (data.thumbnail, data.avgColor)).toMap
         
@@ -363,6 +418,7 @@ object PhotoMosaic {
     val mosaic:BufferedImage = new BufferedImage(productWidth, productHeight, BufferedImage.TYPE_INT_RGB)
     val graphics2D = mosaic.createGraphics()
 
+    // Used to report the progress of the process
     var counter = 1
     val numSubImages = numRows * numColumns
     
@@ -444,6 +500,8 @@ object PhotoMosaic {
   }
   
   
+  
+  
 
   // Calculates the BufferedImage with the single best 
   def getNearestColorImage(color: Color, photoIndex:PhotoIndexer.PhotoIndex): BufferedImage = {
@@ -477,28 +535,16 @@ object PhotoMosaic {
     )
   }
   
-  // Creates a solid swatch of color matching average of 
-  def createSwatch(color:Color): BufferedImage = {
-    val width, height = 10
-    val img = new BufferedImage(width,height,BufferedImage.TYPE_INT_ARGB)
-    val graphics = img.createGraphics()
-    
-    graphics.setColor(color)
-    graphics.fillRect(0,0,width,height)
-    img
-  }
-
   
-  
-
-  
+  // Calculates the average color of a Raster object
   // A raster is an abstraction of a piece of an image and the underlying
   // pixel data.
   // For instance, we can get a raster than is of the upper left twenty
-  // pixel square of an image
+  // pixel square of an image.
+  // 
   def calculateColorFromRaster(raster:Raster): Color = {
     // Important: If we don't keep the sums as Longs, they can easily
-    // overflow when processing a large overexposed image
+    // overflow when processing a large, overexposed image
     var redSum:Long = 0
     var greenSum:Long = 0
     var blueSum:Long = 0
