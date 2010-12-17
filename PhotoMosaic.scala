@@ -436,8 +436,6 @@ object PhotoMosaic {
   }
   
   
-
-  
   def createMosaic(targetImage:BufferedImage, 
       index:PhotoIndexer.PhotoIndex,
       opacity:Float, 
@@ -478,7 +476,7 @@ object PhotoMosaic {
               imageGrid(row)(column) = nearest
               
               callback.photosCalculated(row, column, nearest)
-              
+
               val percent = 100.0 * counter / numSubImages
               // TODO: for GUI version, use a display bar
               if (counter % 100 == 0) {
