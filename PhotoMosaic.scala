@@ -243,7 +243,6 @@ class SimpleColorDistanceProvider(colorMap:Map[BufferedImage, Color]) extends Di
   
   implicit def color2RichColor(x: Color) = new RichColor(x)
   
-  
   /**
    * returns a sorted list of buffered images, where the first element is the
    * closest in average color to the target color, and the last image is
@@ -251,22 +250,66 @@ class SimpleColorDistanceProvider(colorMap:Map[BufferedImage, Color]) extends Di
    */
    override def distance(targetImageSegment:Raster, image:BufferedImage):Double = {
      val targetColor:Color = PhotoMosaic.calculateColorFromRaster(targetImageSegment)
-     // TODO: handle when the map doesn't have htis color
-     val imageColor:Color = colorMap.get(image).get
+
+     val imageColor:Color = colorMap.get(image).getOrElse(PhotoMosaic.calculateColor(image))
      targetColor.distance(imageColor)
    }
-
-   // override def getNearestImages(targetImageSegment:Raster, potentialMatches:Seq[BufferedImage]):Seq[BufferedImage] = {
-   //      val targetColor:Color = PhotoMosaic.calculateColorFromRaster(targetImageSegment)
-   //      val keys = potentialMatches.toList
-   //      val sortedKeys = keys.sortWith( (image1,image2) =>
-   //        distance(targetImageSegment, image1) < distance(targetImageSegment, image2)
-   //      )
-   //      sortedKeys
-   //    }
-  
 }
 
+
+/**
+ * This class is a step up in terms of complexity as compared to the SimpleColorDistanceProvider.
+ * Each target image is subdivided into n x m subimages, whose average colors are then
+ * compared against the n x m subsegments of whatever target raster is selected.
+ * 
+ * The distance is then defined to be the sum of the individual distances of the corresponding subsegments.
+ * This should allow better matches of color, as an image which is on average blue but has wide swatches of
+ * green, e.g., should not be placed in a patch of blue in the target image.
+ */
+class GridDividedDistanceProvider(colorMap:Map[BufferedImage, IndexedSeq[Color]], numRows:Int, numColumns:Int) extends DistanceProvider {
+  
+  var subImageRasterMap:Map[Raster, IndexedSeq[Color]] = Map[Raster, IndexedSeq[Color]]()
+    
+  def calculateAverageColors(raster:Raster):Seq[Color] = {
+    val height = raster.getHeight()
+    val width = raster.getWidth()
+    
+    val heightOfSubimage = height / numRows
+    val widthOfSubimage = width / numColumns
+    
+    val indices = (for (row <- 0 until numRows; column <- 0 until numColumns) yield (row, column) )
+
+    indices.map( rowCol => 
+      PhotoMosaic.calculateColorFromRaster(
+        raster.createChild(rowCol._2 * widthOfSubimage,
+                           rowCol._1 * heightOfSubimage,
+                           widthOfSubimage,
+                           heightOfSubimage,
+                           0,
+                           0,
+                           null
+        )
+      )
+    ) // end map
+         
+  }
+  
+  
+  implicit def color2RichColor(x: Color) = new RichColor(x)
+  
+  
+  // use either max, min, average, or sum.
+  
+  /**
+   * returns a sorted list of buffered images, where the first element is the
+   * closest in average color to the target color, and the last image is
+   * the furthest away
+   */
+   override def distance(targetImageSegment:Raster, image:BufferedImage):Double = {
+     0.0
+   }
+  
+}
 
 
 
